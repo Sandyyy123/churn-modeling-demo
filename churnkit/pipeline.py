@@ -24,6 +24,7 @@ CALIB_CUTOFFS = list(pd.date_range("2025-05-01", "2025-07-01", freq="MS"))
 TEST_CUTOFF = pd.Timestamp("2025-10-01")
 CENSOR_DEMO_CUTOFF = pd.Timestamp("2025-11-01")
 SCORE_CUTOFF = synth.DATA_END + pd.Timedelta(days=1)
+MIN_GAIN = 0.01  # boosting must cut calibration-window log loss by >= 1% to replace the baseline
 
 
 def snapshot(data, cutoff, naive: bool = False) -> pd.DataFrame:
@@ -69,12 +70,14 @@ def run(n_customers: int = 3000, seed: int = 20261020, out_dir: str | Path = "ou
     logit = make_logistic().fit(Xtr, ytr)
     gbm = make_gbm().fit(Xtr, ytr)
 
-    # Selection rule fixed in advance: the model with the lower log loss on the calibration windows
-    # is kept, then its scores are mapped to probabilities by Platt scaling fitted on those same
-    # windows. The test window is used once, at the end, to report every model side by side.
+    # Selection rule: keep the logistic baseline unless gradient boosting lowers the
+    # log loss on the calibration windows by at least MIN_GAIN (relative). The chosen model's scores
+    # are then mapped to probabilities by Platt scaling fitted on those same windows. The test window
+    # is not used for any modelling choice; it only reports results.
     calib_logloss = {name: float(log_loss(calib["label"], m.predict_proba(calib[FEATURES])[:, 1]))
                      for name, m in (("logistic", logit), ("gbm", gbm))}
-    chosen_name = min(calib_logloss, key=calib_logloss.get)
+    gain = 1 - calib_logloss["gbm"] / calib_logloss["logistic"]
+    chosen_name = "gbm" if gain >= MIN_GAIN else "logistic"
     chosen = Calibrated({"logistic": logit, "gbm": gbm}[chosen_name], "sigmoid").fit(calib[FEATURES], calib["label"])
 
     yte = test["label"].to_numpy()
@@ -123,7 +126,7 @@ def run(n_customers: int = 3000, seed: int = 20261020, out_dir: str | Path = "ou
     ranked.to_csv(out / "at_risk_ranked.csv", index=False)
 
     metrics_out = {"test_cutoff": str(TEST_CUTOFF.date()), "horizon_days": SPEC.horizon_days, "models": results,
-                   "calibration_window_log_loss": calib_logloss,
+                   "calibration_window_log_loss": calib_logloss, "gbm_relative_gain": gain, "min_gain_required": MIN_GAIN,
                    "final_model": f"{chosen_name}_calibrated", "leakage_demo": {"naive_whole_extract_gbm_auc": leaky_auc,
                                     "point_in_time_gbm_auc": results["gbm"]["roc_auc"]}}
     (out / "metrics.json").write_text(json.dumps(metrics_out, indent=2))

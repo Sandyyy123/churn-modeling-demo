@@ -38,8 +38,8 @@ flowchart LR
     B --> D[Training cutoffs 2024-01..2025-01]
     C --> D
     D --> E[models.py: prior rate, logistic baseline, gradient boosting]
-    E --> F[Calibration windows 2025-05..2025-07: model choice by log loss + Platt scaling]
-    F --> G[Test window 2025-10-01, used once: AUC, PR-AUC, Brier, reliability, lift]
+    E --> F[Calibration windows 2025-05..2025-07: baseline kept unless boosting cuts log loss by 1% + Platt scaling]
+    F --> G[Test window 2025-10-01, no modelling choices: AUC, PR-AUC, Brier, reliability, lift]
     F --> H[Score active customers at 2026-01-01]
     H --> I[explain.py: per-customer drivers]
     I --> J[outputs/at_risk_ranked.csv]
@@ -58,11 +58,14 @@ Test window: cutoff 2025-10-01, 1886 eligible customers, churn rate 8.2%.
 | Prior rate (everyone gets the training churn rate) | 0.500 | 0.082 | 0.0750 | -0.000 | 0.0046 | 0.97 |
 | Logistic regression (baseline) | 0.741 | 0.209 | 0.0700 | 0.066 | 0.0083 | 3.11 |
 | Gradient boosting, raw | 0.742 | 0.233 | 0.0697 | 0.070 | 0.0099 | 3.18 |
-| Gradient boosting + Platt calibration (final) | 0.742 | 0.233 | 0.0698 | 0.069 | 0.0087 | 3.18 |
+| Logistic + Platt calibration (final) | 0.741 | 0.209 | 0.0703 | 0.063 | 0.0090 | 3.11 |
 
 Brier skill compares against always predicting the base rate. ECE is the expected calibration error over ten
-probability bins. On this synthetic data the churn signal is close to additive, so gradient boosting only ties
-the logistic baseline; that is the reason to fit a baseline first. Calibration windows chose `gbm_calibrated`.
+probability bins. On this synthetic data the churn signal is close to additive, so gradient boosting only ties the
+logistic baseline. The selection rule: boosting replaces the baseline only if it lowers
+log loss on the calibration windows by at least 1%. Here the gain was 0.2%, so the final model is
+`logistic_calibrated`. Recalibration changes little here (Brier 0.0700 raw vs 0.0703 calibrated) because the
+baseline was already close to calibrated; it matters when the current churn rate drifts away from the training period.
 
 **Leakage, measured.** The same gradient-boosting model trained on whole-extract aggregates (the shortcut a quick
 notebook often takes) scores ROC-AUC 0.802 on the test window, against

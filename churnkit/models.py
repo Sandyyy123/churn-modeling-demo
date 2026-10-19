@@ -32,7 +32,7 @@ def make_logistic() -> Pipeline:
 
 
 def make_gbm() -> Pipeline:
-    """Shallow, heavily regularised trees; settings chosen on the calibration windows, never on test."""
+    """Shallow, heavily regularised trees; settings fixed in advance (no tuning on the test window)."""
     return Pipeline([("prep", _preprocess(scale=False)),
                      ("clf", HistGradientBoostingClassifier(learning_rate=0.05, max_iter=100, max_leaf_nodes=4,
                                                             min_samples_leaf=200, l2_regularization=1.0,
